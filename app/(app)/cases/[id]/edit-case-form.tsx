@@ -74,7 +74,9 @@ export function EditCaseForm({ kase }: { kase: Case }) {
       }
     }
     if (state?.success) {
-      setMode("view");
+      startTransition(() => {
+        setMode("view");
+      });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state]);
