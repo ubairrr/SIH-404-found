@@ -21,3 +21,33 @@ export function buildReadRangeHeaders(
   }
   return headers;
 }
+
+// G-03-1 hardening: trims whitespace, normalizes to the URL's origin
+// (scheme+host, no path, no trailing slash), and throws a fixed, non-secret
+// message when the raw value is missing/unparseable or carries a path
+// segment (e.g. a dashboard URL, or /rest/v1, /storage/v1, /storage/v1/s3
+// appended by mistake) — this is Supabase Storage's actual "Invalid path
+// specified in request URL" failure mode observed on Vercel (2026-09-20).
+export function resolveSupabaseUrl(raw: string | undefined): string {
+  const INVALID_URL_MESSAGE =
+    "SUPABASE_URL must be the project API origin, e.g. https://<project-ref>.supabase.co (no path, no trailing slash)";
+
+  if (!raw) {
+    throw new Error(INVALID_URL_MESSAGE);
+  }
+
+  const trimmed = raw.trim();
+  let parsed: URL;
+  try {
+    parsed = new URL(trimmed);
+  } catch {
+    throw new Error(INVALID_URL_MESSAGE);
+  }
+
+  const pathname = parsed.pathname.replace(/\/+$/, "");
+  if (pathname !== "") {
+    throw new Error(INVALID_URL_MESSAGE);
+  }
+
+  return parsed.origin;
+}

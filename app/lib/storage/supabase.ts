@@ -9,12 +9,25 @@ import {
   type StorageAdapter,
 } from "./adapter";
 // Re-exported for backward compatibility with any existing import sites;
-// the real implementation lives in supabase-helpers.ts (no "server-only"
-// import) so it can be unit-tested under plain `node --import tsx --test`
+// the real implementations live in supabase-helpers.ts (no "server-only"
+// import) so they can be unit-tested under plain `node --import tsx --test`
 // without tripping this file's own server-only guard above.
-import { buildReadRangeHeaders } from "./supabase-helpers";
+import { buildReadRangeHeaders, resolveSupabaseUrl as resolveSupabaseUrlPure } from "./supabase-helpers";
 
 export { buildReadRangeHeaders };
+export { resolveSupabaseUrl } from "./supabase-helpers";
+
+// Wraps the pure resolveSupabaseUrl so a malformed SUPABASE_URL always
+// surfaces as a StorageAdapterError (never a bare Error) — requestUpload's
+// catch block only masks StorageAdapterError with the generic client
+// message; any other Error type is returned to the client verbatim.
+function resolveConfiguredSupabaseUrl(): string {
+  try {
+    return resolveSupabaseUrlPure(process.env.SUPABASE_URL);
+  } catch (err) {
+    throw new StorageAdapterError((err as Error).message);
+  }
+}
 
 // SupabaseStorageAdapter — hosted-mode implementation.
 //
@@ -30,7 +43,7 @@ const BUCKET = "casevault-files";
 export class SupabaseStorageAdapter implements StorageAdapter {
   private client() {
     return createClient(
-      process.env.SUPABASE_URL!,
+      resolveConfiguredSupabaseUrl(),
       process.env.SUPABASE_SERVICE_ROLE_KEY!,
     );
   }
@@ -75,8 +88,14 @@ export class SupabaseStorageAdapter implements StorageAdapter {
       .createSignedUploadUrl(key);
 
     if (error || !data) {
+      // G-03-1 diagnosability: include the SDK error's status (when present)
+      // alongside its message so the real cause reaches requestUpload's
+      // console.error() below — never returned to the client verbatim,
+      // StorageAdapterError messages only ever surface as the fixed generic
+      // string outside this module.
+      const status = (error as { status?: number } | null)?.status;
       throw new StorageAdapterError(
-        `SupabaseStorageAdapter.createUploadTarget failed for "${key}": ${error?.message ?? "no data returned"}`,
+        `SupabaseStorageAdapter.createUploadTarget failed for "${key}": ${error?.message ?? "no data returned"}${status !== undefined ? ` (status ${status})` : ""}`,
       );
     }
 
@@ -115,7 +134,7 @@ export class SupabaseStorageAdapter implements StorageAdapter {
   // originates from the current request's own Range header — the key/path
   // is always server-generated, never client-controlled).
   async readRange(key: string, rangeHeader: string | null): Promise<RangeReadResult> {
-    const url = `${process.env.SUPABASE_URL}/storage/v1/object/${BUCKET}/${key}`;
+    const url = `${resolveConfiguredSupabaseUrl()}/storage/v1/object/${BUCKET}/${key}`;
     const headers = buildReadRangeHeaders(
       process.env.SUPABASE_SERVICE_ROLE_KEY!,
       rangeHeader,

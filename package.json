@@ -10,7 +10,8 @@
     "start": "next start",
     "lint": "eslint",
     "test": "node --import tsx --test 'app/**/*.test.ts'",
-    "db:seed": "prisma db seed"
+    "db:seed": "prisma db seed",
+    "storage:backfill-seed": "node --conditions=react-server --import tsx scripts/backfill-seed-storage.ts"
   },
   "prisma": {
     "seed": "node --conditions=react-server --import tsx prisma/seed.ts"

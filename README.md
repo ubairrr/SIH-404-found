@@ -86,3 +86,25 @@ Setup steps:
 See `.env.example` for the full hosted variable template, and
 [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying)
 for general platform details.
+
+### Troubleshooting hosted storage
+
+- `SUPABASE_URL` must be exactly the project API origin
+  (`https://<project-ref>.supabase.co`) — no trailing slash, no `/rest/v1`,
+  `/storage/v1`, or `/storage/v1/s3` suffix, and not the dashboard URL. A
+  wrong value surfaces as Supabase's "Invalid path specified in request URL"
+  error.
+- `SUPABASE_SERVICE_ROLE_KEY` must be the legacy JWT-format `service_role`
+  key (starts with `eyJ`), not the newer non-JWT `sb_secret_...` format —
+  see `.env.example` for details.
+- `node --env-file=.env scripts/probe-hosted-storage.mjs` runs a secret-safe
+  health check (signed-upload-url creation, SDK upload, and a raw
+  `apikey`-header fetch) against the hosted bucket — useful for confirming a
+  fix before redeploying.
+- If documents were seeded against a hosted `DATABASE_URL` while
+  `STORAGE_DRIVER` was not `supabase`, their bytes never reached the hosted
+  bucket and `/api/files` will 404 for them. `npm run db:seed` will NOT fix
+  this (it skips already-existing documents). Run
+  `npm run storage:backfill-seed` instead, with the hosted
+  `STORAGE_DRIVER=supabase`/`SUPABASE_URL`/`SUPABASE_SERVICE_ROLE_KEY`
+  exported.

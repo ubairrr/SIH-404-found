@@ -114,7 +114,16 @@ export async function requestUpload(
     return { url: target.url, token: target.token, key, uploadToken };
   } catch (err) {
     if (err instanceof StorageAdapterError) {
-      console.error("requestUpload storage error", err);
+      // G-03-1 diagnosability: log the real Supabase error message/status so
+      // it is visible in Vercel's function logs — never the service-role
+      // key or any other secret value. The client-facing message stays the
+      // fixed generic string below.
+      console.error("requestUpload storage error", {
+        message: err.message,
+        status:
+          (err as { status?: number; statusCode?: number }).status ??
+          (err as { statusCode?: number }).statusCode,
+      });
       return { error: "Couldn't prepare the upload. Please try again." };
     }
     if (err instanceof Error) return { error: err.message };
