@@ -2,7 +2,19 @@ import "server-only";
 
 import { createClient } from "@supabase/supabase-js";
 
-import { StorageAdapterError, type RangeReadResult, type StorageAdapter } from "./adapter";
+import {
+  StorageAdapterError,
+  StorageObjectNotFoundError,
+  type RangeReadResult,
+  type StorageAdapter,
+} from "./adapter";
+// Re-exported for backward compatibility with any existing import sites;
+// the real implementation lives in supabase-helpers.ts (no "server-only"
+// import) so it can be unit-tested under plain `node --import tsx --test`
+// without tripping this file's own server-only guard above.
+import { buildReadRangeHeaders } from "./supabase-helpers";
+
+export { buildReadRangeHeaders };
 
 // SupabaseStorageAdapter — hosted-mode implementation.
 //
@@ -104,14 +116,19 @@ export class SupabaseStorageAdapter implements StorageAdapter {
   // is always server-generated, never client-controlled).
   async readRange(key: string, rangeHeader: string | null): Promise<RangeReadResult> {
     const url = `${process.env.SUPABASE_URL}/storage/v1/object/${BUCKET}/${key}`;
-    const headers: Record<string, string> = {
-      Authorization: `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`,
-    };
-    if (rangeHeader) {
-      headers.Range = rangeHeader;
-    }
+    const headers = buildReadRangeHeaders(
+      process.env.SUPABASE_SERVICE_ROLE_KEY!,
+      rangeHeader,
+    );
 
     const response = await fetch(url, { headers });
+    if (response.status === 400 || response.status === 404) {
+      // G-03-2 (revised): Supabase's Storage REST gateway answers a missing
+      // object with either a 404 or a 400 "not_found" body — map both to
+      // the not-found sentinel so the route handler can return a clean 404
+      // instead of a generic 500 for what is really a not-found condition.
+      throw new StorageObjectNotFoundError(`Object not found for "${key}"`);
+    }
     if (!response.ok && response.status !== 206) {
       throw new StorageAdapterError(
         `SupabaseStorageAdapter.readRange failed for "${key}": HTTP ${response.status}`,

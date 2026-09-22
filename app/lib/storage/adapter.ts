@@ -23,6 +23,17 @@ export class StorageAdapterError extends Error {
   }
 }
 
+// G-03-2 gap closure: distinct sentinel for "the storage object itself does
+// not exist" (a missing/deleted object, or a hosted seed row whose bytes
+// were never uploaded) so route handlers can answer a clean 404 instead of
+// leaking a generic 500 for what is really a not-found condition.
+export class StorageObjectNotFoundError extends StorageAdapterError {
+  constructor(message: string) {
+    super(message);
+    this.name = "StorageObjectNotFoundError";
+  }
+}
+
 export type RangeReadResult = {
   stream: ReadableStream;
   start: number;

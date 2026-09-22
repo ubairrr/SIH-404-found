@@ -1,6 +1,6 @@
 import { verifySession } from "@/app/lib/dal";
 import { prisma } from "@/app/lib/prisma";
-import { getStorageAdapter } from "@/app/lib/storage/adapter";
+import { getStorageAdapter, StorageObjectNotFoundError } from "@/app/lib/storage/adapter";
 
 // ACC-04 chokepoint: the ONLY path to file bytes. Never imports or calls the
 // audit-log writer — views and downloads are explicitly out of scope for
@@ -80,10 +80,20 @@ export async function GET(
   const isDownload = url.searchParams.has("download");
 
   const range = req.headers.get("range");
-  const { stream, start, end, total, status } = await getStorageAdapter().readRange(
-    version.storageKey,
-    range,
-  );
+  let readResult: Awaited<ReturnType<ReturnType<typeof getStorageAdapter>["readRange"]>>;
+  try {
+    readResult = await getStorageAdapter().readRange(version.storageKey, range);
+  } catch (err) {
+    // G-03-2: a missing/deleted storage object (e.g. a hosted-seeded row
+    // whose bytes were never uploaded to the bucket) answers a clean 404
+    // instead of leaking a generic 500. Any other storage failure (a
+    // genuine 401/500) rethrows unchanged.
+    if (err instanceof StorageObjectNotFoundError) {
+      return new Response("Not found", { status: 404 });
+    }
+    throw err;
+  }
+  const { stream, start, end, total, status } = readResult;
 
   return new Response(stream, {
     status,
