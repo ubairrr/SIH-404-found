@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useEffect, useState } from "react";
+import { startTransition, useActionState, useEffect, useState } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import type { Role } from "@prisma/client";
@@ -100,7 +100,9 @@ function CreateUserForm({ onSuccess }: { onSuccess: () => void }) {
         formData.set("unit", values.unit);
         formData.set("badgeId", values.badgeId);
         formData.set("initialPassword", values.initialPassword);
-        formAction(formData);
+        startTransition(() => {
+          formAction(formData);
+        });
       })}
     >
       <div className="grid grid-cols-2 gap-4">

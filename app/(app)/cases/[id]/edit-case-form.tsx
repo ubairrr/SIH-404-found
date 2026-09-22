@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useEffect, useState } from "react";
+import { startTransition, useActionState, useEffect, useState } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import type { z } from "zod";
@@ -160,7 +160,9 @@ export function EditCaseForm({ kase }: { kase: Case }) {
         formData.set("complainant", values.complainant);
         formData.set("accused", values.accused);
         formData.set("description", values.description);
-        formAction(formData);
+        startTransition(() => {
+          formAction(formData);
+        });
       })}
     >
       <input type="hidden" {...register("caseId")} />

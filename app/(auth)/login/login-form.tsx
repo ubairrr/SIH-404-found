@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState } from "react";
+import { startTransition, useActionState } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 
@@ -34,7 +34,9 @@ export function LoginForm({ demoMode }: { demoMode: boolean }) {
         const formData = new FormData();
         formData.set("username", values.username);
         formData.set("password", values.password);
-        formAction(formData);
+        startTransition(() => {
+          formAction(formData);
+        });
       })}
     >
       <div className="flex flex-col gap-1">

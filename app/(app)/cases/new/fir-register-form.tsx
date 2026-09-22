@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useEffect } from "react";
+import { startTransition, useActionState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
@@ -69,7 +69,9 @@ export function FirRegisterForm() {
         formData.set("complainant", values.complainant);
         formData.set("accused", values.accused);
         formData.set("description", values.description);
-        formAction(formData);
+        startTransition(() => {
+          formAction(formData);
+        });
       })}
     >
       <div className="grid grid-cols-2 gap-4">
