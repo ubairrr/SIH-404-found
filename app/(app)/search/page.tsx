@@ -89,6 +89,7 @@ export default async function SearchPage({
       <h1 className="text-xl font-semibold text-slate-900">Search cases</h1>
 
       <SearchFilterForm
+        key={`${parsed.q ?? ""}|${parsed.stage ?? ""}|${parsed.from ?? ""}|${parsed.to ?? ""}`}
         defaultQ={parsed.q ?? ""}
         defaultStage={parsed.stage ?? ""}
         defaultFrom={parsed.from ?? ""}
