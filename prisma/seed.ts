@@ -167,6 +167,12 @@ const STAGE_ACTOR_ROLE: Record<Stage, Role> = {
   CLOSED_JUDGMENT: "COURT",
 };
 
+// D-11: supporting cases' registration date is backdated a fixed offset after
+// their incidentDate, so the search page's createdAt-range filter (Plan
+// 04-01) visibly narrows the seeded list. The fresh hero case is exempt
+// (D-11/D-21) and keeps the schema default `now()`.
+const BACKDATE_OFFSET_MS = 3 * 24 * 60 * 60 * 1000;
+
 type SupportingCaseSeed = {
   firNumber: string;
   title: string;
@@ -371,6 +377,9 @@ async function seedCases() {
             verdict: seedCase.verdict,
             judgmentSummary: seedCase.judgmentSummary,
             registeredById: police.id,
+            createdAt: new Date(
+              seedCase.incidentDate.getTime() + BACKDATE_OFFSET_MS,
+            ),
           },
         });
 
