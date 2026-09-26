@@ -43,6 +43,22 @@ export default async function AppLayout({
           </span>
         </div>
 
+        <form
+          action="/search"
+          method="get"
+          className="flex items-center gap-2"
+        >
+          <input
+            type="text"
+            name="q"
+            placeholder="FIR number or title…"
+            className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm outline-none focus:border-blue-500"
+          />
+          <button type="submit" className="sr-only">
+            Search
+          </button>
+        </form>
+
         <nav className="flex items-center gap-4">
           {navLinks.map((link) => (
             <Link

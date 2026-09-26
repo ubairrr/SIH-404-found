@@ -43,6 +43,7 @@ export function navLinksForRole(role: Role): NavLink[] {
   if (role === "ADMIN") {
     return [
       { href: "/dashboard", label: "Dashboard" },
+      { href: "/search", label: "Search" },
       { href: "/admin/users", label: "Users" },
       { href: "/admin/log", label: "Change Log" },
       { href: "/cases/new", label: "Register FIR" },
@@ -51,8 +52,12 @@ export function navLinksForRole(role: Role): NavLink[] {
   if (role === "POLICE") {
     return [
       { href: "/dashboard", label: "Dashboard" },
+      { href: "/search", label: "Search" },
       { href: "/cases/new", label: "Register FIR" },
     ];
   }
-  return [{ href: "/dashboard", label: "Dashboard" }];
+  return [
+    { href: "/dashboard", label: "Dashboard" },
+    { href: "/search", label: "Search" },
+  ];
 }
