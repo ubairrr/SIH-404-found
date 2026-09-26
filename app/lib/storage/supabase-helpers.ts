@@ -51,3 +51,60 @@ export function resolveSupabaseUrl(raw: string | undefined): string {
 
   return parsed.origin;
 }
+
+// G-04-1 (04-04): a single place to parse Supabase Storage's two possible
+// Content-Range shapes for a Range request — the satisfied form
+// ("bytes start-end/total") and the unsatisfied form ("bytes */total", sent
+// on a 416). Returns null for a missing/unparseable header rather than
+// throwing, since callers treat "couldn't parse" as "fall back to
+// content-length" (200/206) or "can't recover" (416).
+export type ParsedContentRange = { start: number | null; end: number | null; total: number };
+
+export function parseContentRange(header: string | null | undefined): ParsedContentRange | null {
+  if (!header) return null;
+
+  const satisfied = header.match(/^bytes (\d+)-(\d+)\/(\d+)$/);
+  if (satisfied) {
+    return {
+      start: Number.parseInt(satisfied[1], 10),
+      end: Number.parseInt(satisfied[2], 10),
+      total: Number.parseInt(satisfied[3], 10),
+    };
+  }
+
+  const unsatisfied = header.match(/^bytes \*\/(\d+)$/);
+  if (unsatisfied) {
+    return { start: null, end: null, total: Number.parseInt(unsatisfied[1], 10) };
+  }
+
+  return null;
+}
+
+// G-04-1 (04-04): races `promise` against a bounded timeout, rejecting with
+// `new Error(message)` if the timeout wins. The pending timer is `.unref()`d
+// (Node-only; guarded since browsers/other runtimes don't have it) so a
+// still-pending timeout never keeps the process alive, and is cleared on
+// either settle path so it never fires after the real result is already
+// known.
+export function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new Error(message));
+    }, ms);
+    const maybeUnref = (timer as unknown as { unref?: () => void }).unref;
+    if (typeof maybeUnref === "function") {
+      maybeUnref.call(timer);
+    }
+
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (err) => {
+        clearTimeout(timer);
+        reject(err);
+      },
+    );
+  });
+}

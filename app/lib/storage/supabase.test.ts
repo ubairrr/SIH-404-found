@@ -262,6 +262,12 @@ test("readLeadingBytes: a never-closing response body is bounded by a separate d
         err.name === "StorageAdapterError" &&
         err.message.includes("timed out draining the response body"),
     );
+    // Unlike the fetch-timeout test above (whose timer is created
+    // synchronously, before the first await), this drain timeout is only
+    // created after readRange()'s own async fetch resolution — let that
+    // real microtask/macrotask chain flush before advancing the fake clock,
+    // or the drain timer won't exist yet for tick() to fire.
+    await new Promise((resolve) => setImmediate(resolve));
     await t.mock.timers.tick(15000);
     await assertion;
     assert.equal(cancelCallCount, 1);

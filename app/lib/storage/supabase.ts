@@ -12,7 +12,18 @@ import {
 // the real implementations live in supabase-helpers.ts (no "server-only"
 // import) so they can be unit-tested under plain `node --import tsx --test`
 // without tripping this file's own server-only guard above.
-import { buildReadRangeHeaders, resolveSupabaseUrl as resolveSupabaseUrlPure } from "./supabase-helpers";
+import {
+  buildReadRangeHeaders,
+  resolveSupabaseUrl as resolveSupabaseUrlPure,
+  parseContentRange,
+  withTimeout,
+} from "./supabase-helpers";
+
+// G-04-1 (04-04): bounds for the fetch-header-wait and body-drain stages of
+// readRange/readLeadingBytes — see the class methods below for exactly what
+// each one bounds and why (T-04-08).
+const FETCH_TIMEOUT_MS = 15000;
+const BODY_DRAIN_TIMEOUT_MS = 15000;
 
 export { buildReadRangeHeaders };
 export { resolveSupabaseUrl } from "./supabase-helpers";
@@ -111,7 +122,27 @@ export class SupabaseStorageAdapter implements StorageAdapter {
   // explicit recommendation to avoid a third untested fetch path).
   async readLeadingBytes(key: string, byteLength: number): Promise<Buffer> {
     const { stream } = await this.readRange(key, `bytes=0-${byteLength - 1}`);
-    const buffer = Buffer.from(await new Response(stream).arrayBuffer());
+
+    let arrayBuffer: ArrayBuffer;
+    try {
+      // G-04-1 (04-04) / T-04-08: bounds the body drain separately from the
+      // fetch-header-wait bound inside readRange — a gateway that answers
+      // headers promptly but then never finishes streaming the body would
+      // otherwise hang here indefinitely. Scoped to this small-sniff caller
+      // only: the /api/files ranged-streaming route consumes readRange's
+      // returned stream directly and is never subject to this bound.
+      arrayBuffer = await withTimeout(
+        new Response(stream).arrayBuffer(),
+        BODY_DRAIN_TIMEOUT_MS,
+        `SupabaseStorageAdapter.readLeadingBytes timed out draining the response body for "${key}"`,
+      );
+    } catch (err) {
+      await stream.cancel().catch(() => {});
+      if (err instanceof StorageAdapterError) throw err;
+      throw new StorageAdapterError((err as Error).message);
+    }
+
+    const buffer = Buffer.from(arrayBuffer);
     return buffer.subarray(0, byteLength);
   }
 
@@ -132,14 +163,68 @@ export class SupabaseStorageAdapter implements StorageAdapter {
   // Range header forwarded verbatim (T-03-01: the header value only ever
   // originates from the current request's own Range header — the key/path
   // is always server-generated, never client-controlled).
-  async readRange(key: string, rangeHeader: string | null): Promise<RangeReadResult> {
-    const url = `${resolveConfiguredSupabaseUrl()}/storage/v1/object/${BUCKET}/${key}`;
-    const headers = buildReadRangeHeaders(
-      process.env.SUPABASE_SERVICE_ROLE_KEY!,
-      rangeHeader,
-    );
+  // G-04-1 (04-04) / T-04-08: wraps the raw fetch() in a bounded wait for a
+  // response. Uses Promise.race (not solely an AbortController-triggered
+  // rejection) so the bound fires even against an upstream that never
+  // answers headers at all — aborting the controller is still done as a
+  // best-effort real-world cleanup, but the timeout itself is guaranteed by
+  // the race, not by the abort causing fetch() to reject. Cleared on either
+  // settle path so it never keeps the process alive or fires after the real
+  // result is already known.
+  private fetchWithTimeout(
+    url: string,
+    headers: Record<string, string>,
+    key: string,
+  ): Promise<Response> {
+    const controller = new AbortController();
+    let timedOut = false;
+    let timer: ReturnType<typeof setTimeout>;
 
-    const response = await fetch(url, { headers });
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => {
+        timedOut = true;
+        controller.abort();
+        reject(new Error("timed out waiting for a response"));
+      }, FETCH_TIMEOUT_MS);
+      const maybeUnref = (timer as unknown as { unref?: () => void }).unref;
+      if (typeof maybeUnref === "function") {
+        maybeUnref.call(timer);
+      }
+    });
+
+    return Promise.race([fetch(url, { headers, signal: controller.signal }), timeoutPromise]).then(
+      (response) => {
+        clearTimeout(timer);
+        return response;
+      },
+      (err) => {
+        clearTimeout(timer);
+        if (timedOut) {
+          throw new StorageAdapterError(
+            `SupabaseStorageAdapter.readRange timed out waiting for a response for "${key}"`,
+          );
+        }
+        throw new StorageAdapterError(
+          `SupabaseStorageAdapter.readRange failed for "${key}": ${(err as Error).message}`,
+        );
+      },
+    );
+  }
+
+  // G-04-1 (04-04): the actual over-range-request-robust implementation.
+  // readRange calls this with retriesLeft=1 — a single corrected retry on a
+  // 416, per T-04-09 (the corrected range is derived only from the Storage
+  // REST response's own reported size, never client input).
+  private async fetchRangeWithRetry(
+    key: string,
+    rangeHeader: string | null,
+    retriesLeft: number,
+  ): Promise<RangeReadResult> {
+    const url = `${resolveConfiguredSupabaseUrl()}/storage/v1/object/${BUCKET}/${key}`;
+    const headers = buildReadRangeHeaders(process.env.SUPABASE_SERVICE_ROLE_KEY!, rangeHeader);
+
+    const response = await this.fetchWithTimeout(url, headers, key);
+
     if (response.status === 400 || response.status === 404) {
       // G-03-2 (revised): Supabase's Storage REST gateway answers a missing
       // object with either a 404 or a 400 "not_found" body — map both to
@@ -147,6 +232,39 @@ export class SupabaseStorageAdapter implements StorageAdapter {
       // instead of a generic 500 for what is really a not-found condition.
       throw new StorageObjectNotFoundError(`Object not found for "${key}"`);
     }
+
+    if (response.status === 416) {
+      // G-04-1: an over-range Range request (e.g. bytes=0-4099 against a
+      // smaller object) can come back as a 416 with Content-Range:
+      // "bytes */N" instead of a clamped 206 or a Range-ignoring 200. Drain
+      // the (empty) body, parse N, and retry once with a corrected,
+      // satisfiable range.
+      await response.body?.cancel().catch(() => {});
+      const parsed = parseContentRange(response.headers.get("content-range"));
+
+      if (parsed && parsed.total === 0) {
+        return {
+          stream: new ReadableStream({
+            start(controller) {
+              controller.close();
+            },
+          }),
+          start: 0,
+          end: -1,
+          total: 0,
+          status: 200,
+        };
+      }
+
+      if (retriesLeft > 0 && parsed && parsed.total > 0) {
+        return this.fetchRangeWithRetry(key, `bytes=0-${parsed.total - 1}`, retriesLeft - 1);
+      }
+
+      throw new StorageAdapterError(
+        `SupabaseStorageAdapter.readRange failed for "${key}": 416 Range Not Satisfiable and could not recover a retryable range`,
+      );
+    }
+
     if (!response.ok && response.status !== 206) {
       throw new StorageAdapterError(
         `SupabaseStorageAdapter.readRange failed for "${key}": HTTP ${response.status}`,
@@ -156,19 +274,17 @@ export class SupabaseStorageAdapter implements StorageAdapter {
       throw new StorageAdapterError(`SupabaseStorageAdapter.readRange failed for "${key}": no response body`);
     }
 
-    const contentRange = response.headers.get("content-range");
     const contentLength = Number.parseInt(response.headers.get("content-length") ?? "0", 10);
+    const parsed = parseContentRange(response.headers.get("content-range"));
 
     let start = 0;
     let end = contentLength - 1;
     let total = contentLength;
-    if (contentRange) {
-      // Format: "bytes start-end/total"
-      const match = contentRange.match(/bytes (\d+)-(\d+)\/(\d+)/);
-      if (match) {
-        start = Number.parseInt(match[1], 10);
-        end = Number.parseInt(match[2], 10);
-        total = Number.parseInt(match[3], 10);
+    if (parsed) {
+      total = parsed.total;
+      if (parsed.start !== null && parsed.end !== null) {
+        start = parsed.start;
+        end = parsed.end;
       }
     }
 
@@ -179,6 +295,10 @@ export class SupabaseStorageAdapter implements StorageAdapter {
       total,
       status: response.status === 206 ? 206 : 200,
     };
+  }
+
+  async readRange(key: string, rangeHeader: string | null): Promise<RangeReadResult> {
+    return this.fetchRangeWithRetry(key, rangeHeader, 1);
   }
 
   // D-06: exclusive method for version-creating code (document AND evidence
