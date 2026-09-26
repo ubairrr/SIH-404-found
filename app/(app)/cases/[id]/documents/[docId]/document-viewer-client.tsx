@@ -16,6 +16,7 @@ import {
   type ExistingDocumentForUpload,
 } from "../../upload-dialog";
 import { softDeleteDocument } from "@/app/actions/documents";
+import { Spinner } from "@/app/components/spinner";
 
 export type MediaKind = "pdf" | "image" | "video" | "audio";
 
@@ -189,6 +190,7 @@ export function MediaPreview({
   downloadUrl: string;
 }) {
   const [failed, setFailed] = useState(false);
+  const [loading, setLoading] = useState(true);
 
   if (failed) {
     return (
@@ -203,6 +205,12 @@ export function MediaPreview({
     );
   }
 
+  const loadingPlaceholder = loading ? (
+    <div className="flex h-40 w-full items-center justify-center rounded-md bg-slate-200 animate-pulse motion-reduce:animate-none">
+      <Spinner />
+    </div>
+  ) : null;
+
   if (kind === "pdf") {
     return (
       <embed
@@ -214,31 +222,52 @@ export function MediaPreview({
   }
   if (kind === "image") {
     return (
-      // eslint-disable-next-line @next/next/no-img-element
-      <img
-        src={previewUrl}
-        alt=""
-        className="max-h-[70vh] w-full object-contain"
-        onError={() => setFailed(true)}
-      />
+      <>
+        {loadingPlaceholder}
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={previewUrl}
+          alt=""
+          className={`max-h-[70vh] w-full object-contain ${loading ? "hidden" : ""}`}
+          onLoad={() => setLoading(false)}
+          onError={() => {
+            setLoading(false);
+            setFailed(true);
+          }}
+        />
+      </>
     );
   }
   if (kind === "video") {
     return (
-      <video
-        controls
-        src={previewUrl}
-        className="max-h-[70vh] w-full"
-        onError={() => setFailed(true)}
-      />
+      <>
+        {loadingPlaceholder}
+        <video
+          controls
+          src={previewUrl}
+          className={`max-h-[70vh] w-full ${loading ? "hidden" : ""}`}
+          onLoadedData={() => setLoading(false)}
+          onError={() => {
+            setLoading(false);
+            setFailed(true);
+          }}
+        />
+      </>
     );
   }
   return (
-    <audio
-      controls
-      src={previewUrl}
-      className="w-full"
-      onError={() => setFailed(true)}
-    />
+    <>
+      {loadingPlaceholder}
+      <audio
+        controls
+        src={previewUrl}
+        className={`w-full ${loading ? "hidden" : ""}`}
+        onLoadedData={() => setLoading(false)}
+        onError={() => {
+          setLoading(false);
+          setFailed(true);
+        }}
+      />
+    </>
   );
 }
