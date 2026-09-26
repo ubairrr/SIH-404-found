@@ -1,4 +1,3 @@
-import Link from "next/link";
 import type { Prisma, Stage } from "@prisma/client";
 
 import { authorize } from "@/app/lib/authorize";
@@ -11,6 +10,7 @@ import {
   hasReversedDateRange,
   searchParamsSchema,
 } from "@/app/lib/validation/search";
+import { SearchFilterForm } from "./search-filter-form";
 import { SearchResultsTable } from "./search-results-table";
 
 const PAGE_SIZE = 25;
@@ -88,100 +88,17 @@ export default async function SearchPage({
     <div>
       <h1 className="text-xl font-semibold text-slate-900">Search cases</h1>
 
-      <form
-        method="get"
-        action="/search"
-        className="mt-6 rounded-lg border border-slate-200 bg-white p-6"
-      >
-        <div className="flex flex-wrap items-end gap-4">
-          <div className="min-w-[200px] flex-1">
-            <label
-              htmlFor="search-q"
-              className="mb-1 block text-xs font-semibold text-slate-700"
-            >
-              Search
-            </label>
-            <input
-              id="search-q"
-              type="text"
-              name="q"
-              defaultValue={parsed.q ?? ""}
-              placeholder="FIR number or title…"
-              className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-blue-500"
-            />
-          </div>
-
-          <div>
-            <label
-              htmlFor="search-stage"
-              className="mb-1 block text-xs font-semibold text-slate-700"
-            >
-              Stage
-            </label>
-            <select
-              id="search-stage"
-              name="stage"
-              defaultValue={parsed.stage ?? ""}
-              className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-blue-500"
-            >
-              <option value="">All stages</option>
-              {STAGE_ORDER.map((stage) => (
-                <option key={stage} value={stage}>
-                  {STAGE_LABELS[stage]}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div>
-            <label
-              htmlFor="search-from"
-              className="mb-1 block text-xs font-semibold text-slate-700"
-            >
-              From
-            </label>
-            <input
-              id="search-from"
-              type="date"
-              name="from"
-              defaultValue={parsed.from ?? ""}
-              className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-blue-500"
-            />
-          </div>
-
-          <div>
-            <label
-              htmlFor="search-to"
-              className="mb-1 block text-xs font-semibold text-slate-700"
-            >
-              To
-            </label>
-            <input
-              id="search-to"
-              type="date"
-              name="to"
-              defaultValue={parsed.to ?? ""}
-              className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-blue-500"
-            />
-          </div>
-
-          <button
-            type="submit"
-            className="rounded-md bg-blue-700 px-4 py-2 text-sm font-medium text-white transition hover:bg-blue-600"
-          >
-            Search
-          </button>
-
-          {hasActiveFilter ? (
-            <Link
-              href="/search"
-              className="text-sm font-medium text-blue-700 hover:underline"
-            >
-              Clear filters
-            </Link>
-          ) : null}
-        </div>
-      </form>
+      <SearchFilterForm
+        defaultQ={parsed.q ?? ""}
+        defaultStage={parsed.stage ?? ""}
+        defaultFrom={parsed.from ?? ""}
+        defaultTo={parsed.to ?? ""}
+        stageOptions={STAGE_ORDER.map((stage) => ({
+          value: stage,
+          label: STAGE_LABELS[stage],
+        }))}
+        hasActiveFilter={hasActiveFilter}
+      />
 
       {reversedDateRange ? (
         <div className="mt-4 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800">
