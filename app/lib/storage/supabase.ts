@@ -102,29 +102,28 @@ export class SupabaseStorageAdapter implements StorageAdapter {
     return { url: data.signedUrl, token: data.token };
   }
 
+  // T-03-08 / D-16 fix: hosted-mode magic-byte sniffing must never buffer the
+  // whole object via .download() — a large video upload would load its full
+  // bytes into memory just to inspect a handful of leading bytes. Reuses the
+  // already-tested readRange() ranged-GET path (RESEARCH.md Open Question 1:
+  // resolved via the already-tested bytes=0-0 ranged-GET through readRange()
+  // rather than a new, untested HEAD-request code path, per the researcher's
+  // explicit recommendation to avoid a third untested fetch path).
   async readLeadingBytes(key: string, byteLength: number): Promise<Buffer> {
-    const { data, error } = await this.client().storage.from(BUCKET).download(key);
-
-    if (error || !data) {
-      throw new StorageAdapterError(
-        `SupabaseStorageAdapter.readLeadingBytes failed for "${key}": ${error?.message ?? "no data returned"}`,
-      );
-    }
-
-    const buffer = Buffer.from(await data.arrayBuffer());
+    const { stream } = await this.readRange(key, `bytes=0-${byteLength - 1}`);
+    const buffer = Buffer.from(await new Response(stream).arrayBuffer());
     return buffer.subarray(0, byteLength);
   }
 
+  // See readLeadingBytes comment above: same T-03-08 / D-16 fix. Only a
+  // minimal 1-byte ranged request is issued to discover the object's total
+  // size from the Content-Range response — the unused 1-byte response body
+  // is explicitly drained via stream.cancel() before returning (Pitfall 3 —
+  // an undrained fetch response body can hold a connection open under load).
   async getObjectSize(key: string): Promise<number> {
-    const { data, error } = await this.client().storage.from(BUCKET).download(key);
-
-    if (error || !data) {
-      throw new StorageAdapterError(
-        `SupabaseStorageAdapter.getObjectSize failed for "${key}": ${error?.message ?? "no data returned"}`,
-      );
-    }
-
-    return data.size;
+    const { stream, total } = await this.readRange(key, "bytes=0-0");
+    await stream.cancel();
+    return total;
   }
 
   // RESEARCH.md Open Question 2: `.download()` does not expose a Range

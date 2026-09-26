@@ -9,7 +9,7 @@
     "postinstall": "prisma generate",
     "start": "next start",
     "lint": "eslint",
-    "test": "node --import tsx --test 'app/**/*.test.ts'",
+    "test": "node --conditions=react-server --import tsx --test 'app/**/*.test.ts'",
     "db:seed": "prisma db seed",
     "storage:backfill-seed": "node --conditions=react-server --import tsx scripts/backfill-seed-storage.ts"
   },
