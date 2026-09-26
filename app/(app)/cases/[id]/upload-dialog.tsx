@@ -12,6 +12,7 @@ import {
   TEXTAREA_CLASSES,
 } from "./case-detail-client";
 import { requestUpload, finalizeUpload } from "@/app/actions/documents";
+import { withClientTimeout } from "./with-client-timeout";
 import {
   documentCategoryEnum,
   evidenceTypeEnum,
@@ -201,19 +202,30 @@ export function UploadDialog({
 
       await putWithProgress(requested, file, setProgressPct);
 
-      const finalized = await finalizeUpload({
-        caseId,
-        documentId: existingDocument?.id ?? null,
-        storageKey: requested.key,
-        uploadToken: requested.uploadToken,
-        originalFilename: file.name,
-        title,
-        description: description.trim() ? description : undefined,
-        changeNote: existingDocument ? changeNote : undefined,
-        kind: existingDocument ? undefined : kind,
-        category: existingDocument ? undefined : category,
-        evidenceType: existingDocument ? undefined : evidenceType,
-      });
+      // G-04-1 (04-04 Task 2): bounds the wait so a hung finalizeUpload (see
+      // Task 1's server-side fix for the root cause) can never leave this
+      // dialog stuck at "Uploading…" forever. 50000ms sized with a 5000ms
+      // margin above the worst-case server chain: readRange's first fetch
+      // (up to 15000ms) + its one-shot 416 retry fetch (up to another
+      // 15000ms) + readLeadingBytes's own body-drain timeout (up to a
+      // further 15000ms) = ~45000ms worst case.
+      const finalized = await withClientTimeout(
+        finalizeUpload({
+          caseId,
+          documentId: existingDocument?.id ?? null,
+          storageKey: requested.key,
+          uploadToken: requested.uploadToken,
+          originalFilename: file.name,
+          title,
+          description: description.trim() ? description : undefined,
+          changeNote: existingDocument ? changeNote : undefined,
+          kind: existingDocument ? undefined : kind,
+          category: existingDocument ? undefined : category,
+          evidenceType: existingDocument ? undefined : evidenceType,
+        }),
+        50000,
+        "Upload timed out while finalizing — please try again.",
+      );
       if (finalized.error) {
         setError(finalized.error);
         return;
