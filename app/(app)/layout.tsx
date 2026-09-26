@@ -7,6 +7,8 @@ import {
   ROLE_LABELS,
   navLinksForRole,
 } from "@/app/lib/role-display";
+import { LogoutButton } from "./logout-button";
+import { QuickSearchForm } from "./quick-search-form";
 
 export default async function AppLayout({
   children,
@@ -43,21 +45,7 @@ export default async function AppLayout({
           </span>
         </div>
 
-        <form
-          action="/search"
-          method="get"
-          className="flex items-center gap-2"
-        >
-          <input
-            type="text"
-            name="q"
-            placeholder="FIR number or title…"
-            className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm outline-none focus:border-blue-500"
-          />
-          <button type="submit" className="sr-only">
-            Search
-          </button>
-        </form>
+        <QuickSearchForm />
 
         <nav className="flex items-center gap-4">
           {navLinks.map((link) => (
@@ -70,12 +58,7 @@ export default async function AppLayout({
             </Link>
           ))}
           <form action={logout}>
-            <button
-              type="submit"
-              className="rounded-md border border-slate-300 px-3 py-1.5 text-sm text-slate-700 transition hover:bg-slate-100"
-            >
-              Logout
-            </button>
+            <LogoutButton />
           </form>
         </nav>
       </header>
