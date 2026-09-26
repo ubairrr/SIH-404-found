@@ -244,9 +244,10 @@ export function MediaPreview({
         {loadingPlaceholder}
         <video
           controls
+          preload="auto"
           src={previewUrl}
           className={`max-h-[70vh] w-full ${loading ? "hidden" : ""}`}
-          onLoadedData={() => setLoading(false)}
+          onLoadedMetadata={() => setLoading(false)}
           onError={() => {
             setLoading(false);
             setFailed(true);
@@ -260,9 +261,10 @@ export function MediaPreview({
       {loadingPlaceholder}
       <audio
         controls
+        preload="auto"
         src={previewUrl}
         className={`w-full ${loading ? "hidden" : ""}`}
-        onLoadedData={() => setLoading(false)}
+        onLoadedMetadata={() => setLoading(false)}
         onError={() => {
           setLoading(false);
           setFailed(true);
