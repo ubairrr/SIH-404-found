@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { computeInclusiveIstRange, searchParamsSchema } from "./search";
+import {
+  computeInclusiveIstRange,
+  hasReversedDateRange,
+  searchParamsSchema,
+} from "./search";
 
 // Test 1: IST late-evening createdAt boundary — the `to` upper bound must be
 // computed as IST 23:59:59.999, not naive UTC midnight (RESEARCH.md Pitfall 1).
@@ -53,4 +57,24 @@ test("searchParamsSchema: valid input round-trips unchanged/coerced", () => {
   assert.equal(parsed.to, "2026-09-25");
   assert.equal(parsed.page, 3);
   assert.equal(typeof parsed.page, "number");
+});
+
+// Task 3 behavior: hasReversedDateRange returns true only when both are
+// defined and from > to; false when either is undefined or equal.
+test("hasReversedDateRange: true only when both defined and from > to", () => {
+  const from = new Date("2026-09-25T00:00:00.000Z");
+  const to = new Date("2026-09-20T00:00:00.000Z");
+  assert.equal(hasReversedDateRange(from, to), true);
+});
+
+test("hasReversedDateRange: false when either boundary is undefined", () => {
+  const from = new Date("2026-09-25T00:00:00.000Z");
+  assert.equal(hasReversedDateRange(from, undefined), false);
+  assert.equal(hasReversedDateRange(undefined, from), false);
+  assert.equal(hasReversedDateRange(undefined, undefined), false);
+});
+
+test("hasReversedDateRange: false when from equals to", () => {
+  const same = new Date("2026-09-25T00:00:00.000Z");
+  assert.equal(hasReversedDateRange(same, same), false);
 });
