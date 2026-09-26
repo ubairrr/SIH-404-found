@@ -38,3 +38,18 @@ export function computeInclusiveIstRange(
   }
   return range;
 }
+
+// User decision (UI-consideration probe): when both From and To parse as
+// valid dates and From is after To, an informational notice is shown above
+// the results (the query itself is not rewritten — it runs as submitted and
+// naturally returns zero rows). Pure function: true only when both
+// boundaries are defined and gte > lte.
+export function hasReversedDateRange(
+  from: Date | undefined,
+  to: Date | undefined,
+): boolean {
+  if (!from || !to) {
+    return false;
+  }
+  return from.getTime() > to.getTime();
+}

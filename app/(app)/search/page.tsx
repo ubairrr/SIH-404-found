@@ -1,14 +1,17 @@
+import Link from "next/link";
 import type { Prisma, Stage } from "@prisma/client";
 
 import { authorize } from "@/app/lib/authorize";
 import { prisma } from "@/app/lib/prisma";
-import { STAGE_OWNER } from "@/app/lib/case-guards";
-import { STAGE_BADGE_CLASS, STAGE_LABELS } from "@/app/lib/role-display";
+import { STAGE_OWNER, STAGE_ORDER } from "@/app/lib/case-guards";
+import { STAGE_LABELS } from "@/app/lib/role-display";
 import { PaginationControls } from "@/app/(app)/admin/log/pagination-controls";
 import {
   computeInclusiveIstRange,
+  hasReversedDateRange,
   searchParamsSchema,
 } from "@/app/lib/validation/search";
+import { SearchResultsTable } from "./search-results-table";
 
 const PAGE_SIZE = 25;
 
@@ -34,6 +37,7 @@ export default async function SearchPage({
   const parsed = searchParamsSchema.parse(resolvedSearchParams);
 
   const dateRange = computeInclusiveIstRange(parsed.from, parsed.to);
+  const reversedDateRange = hasReversedDateRange(dateRange.gte, dateRange.lte);
 
   const where: Prisma.CaseWhereInput = {
     ...(parsed.q && {
@@ -76,65 +80,123 @@ export default async function SearchPage({
     ? `/search?${otherParamsQueryString}&`
     : "/search?";
 
+  const hasActiveFilter = Boolean(
+    parsed.q || parsed.stage || parsed.from || parsed.to,
+  );
+
   return (
     <div>
       <h1 className="text-xl font-semibold text-slate-900">Search cases</h1>
 
-      <p className="mt-6 text-sm text-slate-600">
-        Showing {total} case{total === 1 ? "" : "s"}.
-      </p>
+      <form
+        method="get"
+        action="/search"
+        className="mt-6 rounded-lg border border-slate-200 bg-white p-6"
+      >
+        <div className="flex flex-wrap items-end gap-4">
+          <div className="min-w-[200px] flex-1">
+            <label
+              htmlFor="search-q"
+              className="mb-1 block text-xs font-semibold text-slate-700"
+            >
+              Search
+            </label>
+            <input
+              id="search-q"
+              type="text"
+              name="q"
+              defaultValue={parsed.q ?? ""}
+              placeholder="FIR number or title…"
+              className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-blue-500"
+            />
+          </div>
 
-      {cases.length === 0 ? (
-        <div className="mt-3 flex flex-col items-center justify-center gap-2 rounded-lg border border-slate-200 px-6 py-12 text-center">
-          <p className="text-sm font-semibold text-slate-900">
-            No cases match these filters.
-          </p>
-        </div>
-      ) : (
-        <div className="mt-3 overflow-x-auto rounded-lg border border-slate-200">
-          <table className="min-w-full divide-y divide-slate-200 text-sm">
-            <thead className="bg-slate-50">
-              <tr>
-                <th className="px-3 py-2 text-left font-semibold text-slate-700">
-                  FIR No.
-                </th>
-                <th className="px-3 py-2 text-left font-semibold text-slate-700">
-                  Title
-                </th>
-                <th className="px-3 py-2 text-left font-semibold text-slate-700">
-                  Stage
-                </th>
-                <th className="px-3 py-2 text-left font-semibold text-slate-700">
-                  Registered
-                </th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-200 bg-white">
-              {cases.map((kase) => (
-                <tr key={kase.id}>
-                  <td className="whitespace-nowrap px-3 py-2 font-mono text-xs text-slate-900">
-                    {kase.firNumber}
-                  </td>
-                  <td
-                    className="max-w-[240px] truncate px-3 py-2 text-slate-900"
-                    title={kase.title}
-                  >
-                    {kase.title}
-                  </td>
-                  <td className="px-3 py-2">
-                    <span className={STAGE_BADGE_CLASS}>
-                      {STAGE_LABELS[kase.stage]}
-                    </span>
-                  </td>
-                  <td className="whitespace-nowrap px-3 py-2 text-slate-700">
-                    {kase.createdAt.toLocaleDateString()}
-                  </td>
-                </tr>
+          <div>
+            <label
+              htmlFor="search-stage"
+              className="mb-1 block text-xs font-semibold text-slate-700"
+            >
+              Stage
+            </label>
+            <select
+              id="search-stage"
+              name="stage"
+              defaultValue={parsed.stage ?? ""}
+              className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-blue-500"
+            >
+              <option value="">All stages</option>
+              {STAGE_ORDER.map((stage) => (
+                <option key={stage} value={stage}>
+                  {STAGE_LABELS[stage]}
+                </option>
               ))}
-            </tbody>
-          </table>
+            </select>
+          </div>
+
+          <div>
+            <label
+              htmlFor="search-from"
+              className="mb-1 block text-xs font-semibold text-slate-700"
+            >
+              From
+            </label>
+            <input
+              id="search-from"
+              type="date"
+              name="from"
+              defaultValue={parsed.from ?? ""}
+              className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-blue-500"
+            />
+          </div>
+
+          <div>
+            <label
+              htmlFor="search-to"
+              className="mb-1 block text-xs font-semibold text-slate-700"
+            >
+              To
+            </label>
+            <input
+              id="search-to"
+              type="date"
+              name="to"
+              defaultValue={parsed.to ?? ""}
+              className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-blue-500"
+            />
+          </div>
+
+          <button
+            type="submit"
+            className="rounded-md bg-blue-700 px-4 py-2 text-sm font-medium text-white transition hover:bg-blue-600"
+          >
+            Search
+          </button>
+
+          {hasActiveFilter ? (
+            <Link
+              href="/search"
+              className="text-sm font-medium text-blue-700 hover:underline"
+            >
+              Clear filters
+            </Link>
+          ) : null}
         </div>
-      )}
+      </form>
+
+      {reversedDateRange ? (
+        <div className="mt-4 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+          The From date is after the To date, so no cases can match. Swap the
+          dates or clear filters.
+        </div>
+      ) : null}
+
+      <div className="mt-6">
+        <SearchResultsTable
+          cases={cases}
+          ownedStages={ownedStages}
+          total={total}
+        />
+      </div>
 
       <PaginationControls
         page={clampedPage}
