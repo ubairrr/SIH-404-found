@@ -17,7 +17,6 @@ write-once, append-only change log.
 [Security Deep-Dive](#security-deep-dive)
 [Local/Offline Setup & Seeding](#localoffline-setup--seeding)
 [Tech-Stack Rationale](#tech-stack-rationale)
-[Screenshots](#screenshots)
 
 ## Quick Start
 
@@ -97,7 +96,7 @@ All 5 demo accounts share the password `CaseVault@123`.
 
 ## Architecture
 
-**Stack:** Next.js 16.3.5 (App Router) + React 19.3.0 + TypeScript 5.9.3 on PostgreSQL 16/17 via Prisma 6.19.3, styled with Tailwind 4.x, with custom session auth (`jose` + `bcryptjs`) — no Auth.js/NextAuth, no Supabase Auth.
+**Stack:** Next.js 16.3.5 (App Router) + React 19.2.8 + TypeScript 5.9.3 on PostgreSQL 16/17 via Prisma 6.19.3, styled with Tailwind 4.x, with custom session auth (`jose` + `bcryptjs`) — no Auth.js/NextAuth, no Supabase Auth.
 
 **Project structure:**
 
@@ -129,7 +128,7 @@ prisma/
 └── seed.ts                # Demo accounts + hero case + supporting cases
 ```
 
-**Authorization is enforced by exactly one server-side chokepoint.** Every Server Action and Route Handler in this app calls `authorize()` (`app/lib/authorize.ts`), which always re-reads the caller's current role from the database via `verifySession()` before deciding — never from a cached or JWT-embedded value. `middleware.ts` is **UX-only**: it performs an optimistic cookie decode with no database call, purely to redirect an obviously-unauthenticated visitor before a page even starts rendering. It is never the authorization authority, and no route in this codebase treats it as one — the real gate is always `authorize()` on the server.
+**Authorization is enforced by exactly one server-side chokepoint.** Every Server Action and Route Handler in this app calls `authorize()` (`app/lib/authorize.ts`), which always re-reads the caller's current role from the database via `verifySession()` before deciding — never from a cached or JWT-embedded value. `proxy.ts` (Next.js 16's renamed `middleware.ts`) is **UX-only**: it performs an optimistic cookie decode with no database call, purely to redirect an obviously-unauthenticated visitor before a page even starts rendering. It is never the authorization authority, and no route in this codebase treats it as one — the real gate is always `authorize()` on the server.
 
 **File storage is switched by one environment variable, never by code branching.** The `StorageAdapter` interface (`app/lib/storage/adapter.ts`) is implemented by both `SupabaseStorageAdapter` and `LocalDiskStorageAdapter`; `getStorageAdapter()` picks between them purely based on `STORAGE_DRIVER` — `"supabase"` selects the hosted adapter, anything else (including unset) selects the local-disk adapter. Every caller — upload, finalize, read — goes through this same interface regardless of which adapter is active.
 
@@ -140,7 +139,7 @@ prisma/
 ```mermaid
 flowchart LR
     Browser["Browser (Next.js Client Components)"]
-    Middleware["middleware.ts (cookie-only fast check)"]
+    Middleware["proxy.ts (cookie-only fast check)"]
     ServerActions["Server Actions / Route Handlers\n(app/actions/*, app/api/*)"]
     Authorize["authorize() chokepoint\n(app/lib/authorize.ts)"]
     DAL["verifySession() (app/lib/dal.ts)"]
@@ -413,15 +412,11 @@ See `.env.example` for the full hosted variable template.
 | Technology | Pinned Version | Why This, Not the Alternative |
 |------------|-----------------|-------------------------------|
 | Next.js (App Router) | 16.3.5 | One framework for frontend + backend — Server Actions replace a hand-rolled REST layer for case/document mutations |
-| React | 19.3.0 | Required peer of Next 16; Server Components + `useActionState`/`useFormStatus` pair naturally with Server Actions |
+| React | 19.2.8 | Required peer of Next 16; Server Components + `useActionState`/`useFormStatus` pair naturally with Server Actions |
 | TypeScript | 5.9.3, **not Prisma 7's forced companion TS7.x native compiler** | Battle-tested, matches what `create-next-app`, ESLint, and every library's `.d.ts` files were authored against; TypeScript 7.x's Go-based native compiler is still stabilizing third-party tooling support, not worth the risk on a fixed deadline |
 | PostgreSQL | 16/17 | Only mainstream DB with triggers and `REVOKE` strong enough to make "no one can edit the audit log" a DB guarantee rather than an app-layer promise |
 | Prisma ORM | 6.19.3, **not Prisma 7** | Prisma 7 makes driver adapters mandatory for every database, introduces `prisma.config.ts`, and removes the old middleware API — real breaking changes with a smaller base of documentation to unblock a fixed-deadline build fast; Prisma 6.19 gives the same schema-first DX with a zero-config Postgres connection via `DATABASE_URL` |
 | Supabase | Postgres 17 + Storage, bundled | One signup/dashboard for both the relational DB and object storage; Storage buckets support signed upload URLs so large evidence files upload directly from the browser, bypassing Next.js/Vercel request-body limits |
 | Tailwind CSS | 4.3.3 | CSS-first `@theme` config is what `create-next-app`'s Next 16 template scaffolds by default — zero extra setup |
-| `jose` | 6.2.12 | Edge-runtime compatible (unlike Node's `crypto`/`jsonwebtoken`), so the same signing code works in `middleware.ts` and in Node-runtime Server Actions |
+| `jose` | 6.2.12 | Edge-runtime compatible (unlike Node's `crypto`/`jsonwebtoken`), so the same signing code works in `proxy.ts` and in Node-runtime Server Actions |
 | `bcryptjs`, **not native `bcrypt`** | 3.0.3 | Pure JS, not a native C++ binding — avoids build failures on serverless deploy targets; native `bcrypt` adds native-module risk with zero benefit at this app's scale |
-
-## Screenshots
-
-This section is reserved for a later phase. Live-app screenshots are not yet included here.
