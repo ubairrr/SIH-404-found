@@ -53,3 +53,6 @@ CLAUDE.md
 # TypeScript / Next.js generated
 *.tsbuildinfo
 next-env.d.ts
+
+# /brag launch-video output
+/brag-output*/
