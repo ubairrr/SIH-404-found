@@ -13,9 +13,10 @@
 // for MediaPreview's `<a href={downloadUrl} download>` evidence-file
 // downloads, which never navigate away from the current page.
 import { usePathname, useSearchParams } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { isEligibleNavClick } from "./nav-click-eligibility";
+import { subscribeNavProgressStart } from "./nav-progress-bus";
 
 export function NavigationProgress() {
   const pathname = usePathname();
@@ -26,6 +27,18 @@ export function NavigationProgress() {
   // (modifier/middle/target=_blank/same-URL clicks the eligibility guard
   // below already screens out, plus any navigation that never resolves).
   const safetyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // 05-06 (G-05-7): shared arm sequence — both the eligible-anchor-click
+  // branch below and the new nav-progress-bus subscription call this same
+  // function, so there is exactly one implementation of "arm the bar" for
+  // any trigger source.
+  const armBar = useCallback(() => {
+    setVisible(true);
+    if (safetyTimer.current) {
+      clearTimeout(safetyTimer.current);
+    }
+    safetyTimer.current = setTimeout(() => setVisible(false), 8000);
+  }, []);
 
   useEffect(() => {
     const key = pathname + searchParams.toString();
@@ -58,11 +71,7 @@ export function NavigationProgress() {
         currentHref: window.location.href,
       });
       if (eligible) {
-        setVisible(true);
-        if (safetyTimer.current) {
-          clearTimeout(safetyTimer.current);
-        }
-        safetyTimer.current = setTimeout(() => setVisible(false), 8000);
+        armBar();
       }
     }
     document.addEventListener("click", handleClick);
@@ -72,7 +81,15 @@ export function NavigationProgress() {
         clearTimeout(safetyTimer.current);
       }
     };
-  }, []);
+  }, [armBar]);
+
+  // 05-06 (G-05-7): non-anchor pending-state UI (e.g. the case-detail tab
+  // bar's useTransition click) arms the bar through this subscription
+  // instead of the document click-listener above, so isEligibleNavClick's
+  // anchor-only guard is never loosened to accommodate it.
+  useEffect(() => {
+    return subscribeNavProgressStart(armBar);
+  }, [armBar]);
 
   return (
     <div
