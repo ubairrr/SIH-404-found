@@ -8,7 +8,7 @@ statements, charge sheets, court filings, forensic reports, judgments) and
 digital evidence files, with every modification permanently recorded in a
 write-once, append-only change log.
 
-## Table of Contents
+**Table of Contents**
 
 [Quick Start](#quick-start)
 [Feature Catalogue](#feature-catalogue)
@@ -317,3 +317,111 @@ Every file read goes through the single authenticated route `GET /api/files/[ver
 ### 6. Live tamper test
 
 Admin's `/admin/log` page includes a tamper-test panel that attempts a live `UPDATE` and `DELETE` against the most recent audit-log row, through the app's own database connection, and shows the result: the database rejects both statements with a Postgres error, and the row is confirmed unchanged. If either statement unexpectedly succeeded, the panel shows an explicit "Tamper protection NOT active" warning rather than staying silent — there is no scenario where this check passes quietly without proof.
+
+## Local/Offline Setup & Seeding
+
+### Offline mode (one command)
+
+CaseVault runs identically as a fully offline, single-laptop stack — no internet
+dependency, no Supabase/Vercel network calls — switched purely by environment
+configuration (`STORAGE_DRIVER`, `DATABASE_URL`/`DIRECT_URL`), never by code
+branching.
+
+1. `cp .env.local.example .env.local` and fill in `SESSION_SECRET` (generate one
+   with `openssl rand -base64 32`).
+2. `npm run dev:offline`
+
+That single command:
+
+- starts local Postgres 17 via Docker Compose (`docker compose up -d --wait`)
+- applies all committed Prisma migrations, including the append-only audit-log
+  trigger, against that local database (`prisma migrate deploy`)
+- seeds the 5 demo accounts (`prisma db seed`)
+- starts the app at [http://localhost:3000](http://localhost:3000) (`next dev`)
+
+Requires Docker and Docker Compose installed and running.
+
+### Hosted deployment (Vercel + Supabase)
+
+CaseVault's public demo runs identically on Vercel, backed by Supabase Postgres +
+Storage — switched from the offline stack purely by environment configuration
+(`STORAGE_DRIVER=supabase`, `DATABASE_URL`/`DIRECT_URL` pointing at Supabase),
+never by code branching.
+
+Setup steps:
+
+1. **Supabase** — use (or create) a Supabase project with Postgres and Storage
+   enabled. Create a private Storage bucket named `casevault-files`. From
+   Project Settings → API, note the Project URL and `service_role` key; from
+   Project Settings → Database, note the pooled (`DATABASE_URL`, port 6543,
+   `?pgbouncer=true`) and direct (`DIRECT_URL`, port 5432) connection strings.
+   Apply the committed Prisma migrations against `DIRECT_URL`
+   (`npx prisma migrate deploy`) and seed the 5 demo accounts
+   (`npx prisma db seed`).
+2. **Vercel** — import this GitHub repo as a new Vercel project. Set these
+   environment variables on the project:
+   - `DATABASE_URL` — Supabase pooled connection string
+   - `DIRECT_URL` — Supabase direct connection string
+   - `SESSION_SECRET` — random value (`openssl rand -base64 32`)
+   - `SUPABASE_URL` — Supabase Project URL
+   - `SUPABASE_SERVICE_ROLE_KEY` — Supabase `service_role` key (server-only,
+     never exposed to the client bundle)
+   - `STORAGE_DRIVER` — `supabase`
+   - `DEMO_MODE` — `true` (shows the click-to-fill Demo Accounts panel on
+     `/login`)
+
+   Deploy. Vercel auto-deploys on every push to `main` from then on.
+
+See `.env.example` for the full hosted variable template.
+
+#### Troubleshooting hosted storage
+
+- `SUPABASE_URL` must be exactly the project API origin
+  (`https://<project-ref>.supabase.co`) — no trailing slash, no `/rest/v1`,
+  `/storage/v1`, or `/storage/v1/s3` suffix, and not the dashboard URL. A
+  wrong value surfaces as Supabase's "Invalid path specified in request URL"
+  error.
+- `SUPABASE_SERVICE_ROLE_KEY` must be the legacy JWT-format `service_role`
+  key (starts with `eyJ`), not the newer non-JWT `sb_secret_...` format —
+  see `.env.example` for details.
+- `node --env-file=.env scripts/probe-hosted-storage.mjs` runs a secret-safe
+  health check (signed-upload-url creation, SDK upload, and a raw
+  `apikey`-header fetch) against the hosted bucket — useful for confirming a
+  fix before redeploying.
+- If documents were seeded against a hosted `DATABASE_URL` while
+  `STORAGE_DRIVER` was not `supabase`, their bytes never reached the hosted
+  bucket and `/api/files` will 404 for them. `npm run db:seed` will NOT fix
+  this (it skips already-existing documents). Run
+  `npm run storage:backfill-seed` instead, with the hosted
+  `STORAGE_DRIVER=supabase`/`SUPABASE_URL`/`SUPABASE_SERVICE_ROLE_KEY`
+  exported.
+
+### npm scripts
+
+| Script | Purpose |
+|--------|---------|
+| `npm run dev` | Start the Next.js dev server against whatever `DATABASE_URL`/`STORAGE_DRIVER` is already configured |
+| `npm run dev:offline` | One-command offline stack: local Postgres via Docker, migrate, seed, dev server |
+| `npm run build` | Generate the Prisma client and build the production Next.js app |
+| `npm run test` | Run the project's `node:test` suite under the `react-server` condition |
+| `npm run db:seed` | Seed the 5 demo accounts and demo cases (skips already-existing rows) |
+| `npm run storage:backfill-seed` | Re-upload seeded documents' bytes into the hosted Supabase bucket when they're missing |
+| `npm run verify:hero-case` | Verify hero case KOT/2026/0089's seeded data against expectations |
+
+## Tech-Stack Rationale
+
+| Technology | Pinned Version | Why This, Not the Alternative |
+|------------|-----------------|-------------------------------|
+| Next.js (App Router) | 16.3.5 | One framework for frontend + backend — Server Actions replace a hand-rolled REST layer for case/document mutations |
+| React | 19.3.0 | Required peer of Next 16; Server Components + `useActionState`/`useFormStatus` pair naturally with Server Actions |
+| TypeScript | 5.9.3, **not Prisma 7's forced companion TS7.x native compiler** | Battle-tested, matches what `create-next-app`, ESLint, and every library's `.d.ts` files were authored against; TypeScript 7.x's Go-based native compiler is still stabilizing third-party tooling support, not worth the risk on a fixed deadline |
+| PostgreSQL | 16/17 | Only mainstream DB with triggers and `REVOKE` strong enough to make "no one can edit the audit log" a DB guarantee rather than an app-layer promise |
+| Prisma ORM | 6.19.3, **not Prisma 7** | Prisma 7 makes driver adapters mandatory for every database, introduces `prisma.config.ts`, and removes the old middleware API — real breaking changes with a smaller base of documentation to unblock a fixed-deadline build fast; Prisma 6.19 gives the same schema-first DX with a zero-config Postgres connection via `DATABASE_URL` |
+| Supabase | Postgres 17 + Storage, bundled | One signup/dashboard for both the relational DB and object storage; Storage buckets support signed upload URLs so large evidence files upload directly from the browser, bypassing Next.js/Vercel request-body limits |
+| Tailwind CSS | 4.3.3 | CSS-first `@theme` config is what `create-next-app`'s Next 16 template scaffolds by default — zero extra setup |
+| `jose` | 6.2.12 | Edge-runtime compatible (unlike Node's `crypto`/`jsonwebtoken`), so the same signing code works in `middleware.ts` and in Node-runtime Server Actions |
+| `bcryptjs`, **not native `bcrypt`** | 3.0.3 | Pure JS, not a native C++ binding — avoids build failures on serverless deploy targets; native `bcrypt` adds native-module risk with zero benefit at this app's scale |
+
+## Screenshots
+
+This section is reserved for a later phase. Live-app screenshots are not yet included here.
