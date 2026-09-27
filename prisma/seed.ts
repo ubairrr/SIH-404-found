@@ -64,6 +64,12 @@ async function main() {
   await seedCases();
 }
 
+// Hosted Postgres (Supabase) round-trips are far slower than local Docker;
+// Prisma's default 5s interactive-transaction timeout expires mid-way through
+// a multi-document attach against production (P2028). Give every seed
+// transaction a generous bound instead.
+const SEED_TX_OPTIONS = { maxWait: 15_000, timeout: 120_000 };
+
 // D-22/D-24: attaches one Document + its version(s) to `caseId` inside `tx`,
 // resolving the acting user from `usersByRole` and using its id for BOTH
 // uploadedById/createdById (Document/DocumentVersion) AND actorId/actorRole
@@ -396,7 +402,7 @@ async function seedCases() {
         startOffsetMinutes: heroOffset,
       });
     }
-  });
+  }, SEED_TX_OPTIONS);
 
   console.log(`Seeded fresh hero case ${heroFirNumber} (additive, D-21).`);
 
@@ -438,7 +444,7 @@ async function seedCases() {
               actor,
             });
           }
-        });
+        }, SEED_TX_OPTIONS);
       }
     } else {
       const targetIndex = STAGE_ORDER.indexOf(seedCase.targetStage);
@@ -476,7 +482,7 @@ async function seedCases() {
         }
 
         return created.id;
-      });
+      }, SEED_TX_OPTIONS);
 
       supportingCreated += 1;
     }
@@ -507,7 +513,7 @@ async function seedCases() {
             startOffsetMinutes: offset,
           });
         }
-      });
+      }, SEED_TX_OPTIONS);
     }
   }
 
