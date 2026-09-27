@@ -318,16 +318,10 @@ async function createStageAdvanceRow(
   });
 }
 
-async function seedCases() {
-  const usersByRole = new Map<Role, { id: string }>();
-  for (const account of DEMO_ACCOUNTS) {
-    const user = await prisma.user.findUniqueOrThrow({
-      where: { username: account.username },
-      select: { id: true, role: true },
-    });
-    usersByRole.set(user.role, user);
-  }
-
+async function seedFreshHeroCase(
+  usersByRole: Map<Role, { id: string }>,
+  police: { id: string },
+) {
   // D-21: the hero case is strictly additive — never delete or rewrite an
   // existing hero-case row. Find the current max KOT/2026/0### hero number
   // and create the next one each run.
@@ -346,8 +340,6 @@ async function seedCases() {
     heroSuffixes.length === 0 ? 0 : Math.max(...heroSuffixes) + 1;
   const heroFirNumber =
     nextHeroSuffix === 0 ? "KOT/2026/0142" : `KOT/2026/0142-${nextHeroSuffix}`;
-
-  const police = usersByRole.get("POLICE")!;
 
   await prisma.$transaction(async (tx) => {
     const heroCase = await tx.case.create({
@@ -405,6 +397,28 @@ async function seedCases() {
   }, SEED_TX_OPTIONS);
 
   console.log(`Seeded fresh hero case ${heroFirNumber} (additive, D-21).`);
+}
+
+async function seedCases() {
+  const usersByRole = new Map<Role, { id: string }>();
+  for (const account of DEMO_ACCOUNTS) {
+    const user = await prisma.user.findUniqueOrThrow({
+      where: { username: account.username },
+      select: { id: true, role: true },
+    });
+    usersByRole.set(user.role, user);
+  }
+
+  const police = usersByRole.get("POLICE")!;
+
+  // Opt-in skip for re-running the seed against an already-seeded
+  // production database: fills in supporting-case data without minting
+  // another KOT/2026/0142-N hero case.
+  if (process.env.SEED_SKIP_FRESH_HERO === "1") {
+    console.log("Skipped fresh hero case (SEED_SKIP_FRESH_HERO=1).");
+  } else {
+    await seedFreshHeroCase(usersByRole, police);
+  }
 
   // Supporting cases: idempotent upsert by firNumber so re-running the seed
   // is a no-op for them (D-20).
