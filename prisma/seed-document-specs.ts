@@ -104,6 +104,96 @@ export const SUPPORTING_CASE_DOCUMENTS: Record<string, SeedDocumentSpec[]> = {
         },
       ],
     },
+    {
+      title: "Forensic Report — Handwriting and Signature Analysis of Land Sale Agreement",
+      kind: "DOCUMENT",
+      category: "FORENSIC_REPORT",
+      actorRole: "FORENSICS",
+      versions: [
+        {
+          filename: "forensic-report-0089-v1.pdf",
+          mimeType: "application/pdf",
+          versionNumber: 1,
+          changeNote: null,
+        },
+        {
+          filename: "forensic-report-0089-v2.pdf",
+          mimeType: "application/pdf",
+          versionNumber: 2,
+          changeNote: "Updated with the forensic lab's finalized signature-comparison findings.",
+        },
+      ],
+    },
+    {
+      title: "Court Filing — Sessions Court Registration for Land Sale Forgery Case",
+      kind: "DOCUMENT",
+      category: "COURT_FILING",
+      actorRole: "COURT",
+      versions: [
+        {
+          filename: "court-filing-0089.pdf",
+          mimeType: "application/pdf",
+          versionNumber: 1,
+          changeNote: null,
+        },
+      ],
+    },
+    {
+      title: "Legal Notice — Summons Issued to Accused Dinesh Chavan",
+      kind: "DOCUMENT",
+      category: "LEGAL_NOTICE",
+      actorRole: "COURT",
+      versions: [
+        {
+          filename: "legal-notice-0089.pdf",
+          mimeType: "application/pdf",
+          versionNumber: 1,
+          changeNote: null,
+        },
+      ],
+    },
+    {
+      title: "CCTV Footage — Sub-Registrar Office Entrance",
+      kind: "EVIDENCE",
+      evidenceType: "VIDEO_CCTV",
+      actorRole: "FORENSICS",
+      versions: [
+        {
+          filename: "cctv-0089.mp4",
+          mimeType: "video/mp4",
+          versionNumber: 1,
+          changeNote: null,
+        },
+      ],
+    },
+    {
+      title: "Witness Call Recording — Follow-up Statement by Suresh Patil",
+      kind: "EVIDENCE",
+      evidenceType: "AUDIO",
+      actorRole: "POLICE",
+      versions: [
+        {
+          filename: "witness-audio-0089.mp3",
+          mimeType: "audio/mpeg",
+          versionNumber: 1,
+          changeNote: null,
+        },
+      ],
+    },
+    {
+      title: "Digital Forensic Extract — Land Registrar Database Records",
+      kind: "EVIDENCE",
+      evidenceType: "FORENSIC_DATA",
+      actorRole: "FORENSICS",
+      versions: [
+        {
+          filename: "forensic-data-0089.pdf",
+          mimeType: "application/pdf",
+          versionNumber: 1,
+          changeNote: null,
+        },
+      ],
+    },
   ],
   "RJN/2026/0033": [
     {
