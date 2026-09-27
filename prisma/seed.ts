@@ -265,7 +265,7 @@ const SUPPORTING_CASES: SupportingCaseSeed[] = [
   },
 ];
 
-// #06-01: shared per-index StageHistory+AuditLog row creation, extracted
+// #07-01: shared per-index StageHistory+AuditLog row creation, extracted
 // from the new-case loop below so the existing-case stage top-up path (see
 // the `if (existing)` branch) can produce byte-identical rows without
 // duplicating the branch logic.
@@ -433,7 +433,7 @@ async function seedCases() {
     if (existing) {
       caseId = existing.id;
 
-      // #06-01: existing-case stage top-up — if this seed run's targetStage
+      // #07-01: existing-case stage top-up — if this seed run's targetStage
       // has moved past a previously-seeded case's current stage (e.g. 0089
       // moving from CHARGE_SHEET_FILED to IN_COURT), advance it in one
       // transaction alongside the missing StageHistory/AuditLog rows.

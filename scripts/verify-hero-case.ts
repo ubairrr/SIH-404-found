@@ -1,6 +1,6 @@
 // Verifies hero case KOT/2026/0089's document/evidence/version/stage/log
 // data against HERO-01..05 (all but the live-Vercel clause of HERO-05,
-// which Plan 06-02's checkpoint confirms visually). Modeled on
+// which Plan 07-02's checkpoint confirms visually). Modeled on
 // scripts/backfill-seed-storage.ts's shape — a standalone PrismaClient
 // script run via `node --conditions=react-server --import tsx`, printing
 // only counts/titles/statuses, never env values or full storageKey values
