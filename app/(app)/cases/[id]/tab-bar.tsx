@@ -3,6 +3,8 @@
 import { useRouter } from "next/navigation";
 import { useTransition } from "react";
 
+import { startNavProgress } from "@/app/components/nav-progress-bus";
+
 // D-13: URL-synced tab bar. The active tab is derived server-side
 // (page.tsx reads searchParams.tab) and passed in as `activeTab`, so a hard
 // refresh, back button, or direct deep link to `?tab=documents` all render
@@ -27,6 +29,13 @@ export function TabBar({
   const [isPending, startTransition] = useTransition();
 
   function goTo(key: string) {
+    // 05-06 (G-05-7): arm the global nav-progress bar for a real tab
+    // change via the additive nav-progress-bus trigger — never for a
+    // no-op re-click of the already-active tab, mirroring
+    // isEligibleNavClick's same-URL exclusion.
+    if (key !== activeTab) {
+      startNavProgress();
+    }
     startTransition(() => {
       router.push(`?tab=${key}`);
     });
@@ -44,8 +53,8 @@ export function TabBar({
             disabled={isPending}
             className={
               isActive
-                ? "border-b-2 border-blue-700 px-1 py-3 text-sm font-semibold text-blue-700 disabled:opacity-70"
-                : "border-b-2 border-transparent px-1 py-3 text-sm font-medium text-slate-600 hover:text-slate-900 disabled:opacity-70"
+                ? "border-b-2 border-blue-700 px-1 py-3 text-sm font-semibold text-blue-700 motion-safe:transition-opacity motion-safe:duration-200 disabled:opacity-70"
+                : "border-b-2 border-transparent px-1 py-3 text-sm font-medium text-slate-600 hover:text-slate-900 motion-safe:transition-opacity motion-safe:duration-200 disabled:opacity-70"
             }
           >
             {tab.label}
