@@ -261,3 +261,59 @@ sequenceDiagram
     FR->>St: readRange(storageKey, Range header)
     FR-->>B: streamed bytes (inline or attachment)
 ```
+
+## Security Deep-Dive
+
+### 1. Append-only audit log
+
+Every modification is written to an `AuditLog` table that the database itself refuses to change. The initial migration revokes `UPDATE`/`DELETE`/`TRUNCATE` on `"AuditLog"` from the app's connecting role and installs a trigger that rejects any attempt outright:
+
+```sql
+REVOKE UPDATE, DELETE, TRUNCATE ON "AuditLog" FROM CURRENT_USER;
+GRANT INSERT, SELECT ON "AuditLog" TO CURRENT_USER;
+
+CREATE OR REPLACE FUNCTION audit_log_no_row_mutation()
+RETURNS TRIGGER AS $$
+BEGIN
+  RAISE EXCEPTION 'audit_log is append-only: % is not permitted', TG_OP;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER audit_log_block_update_delete
+  BEFORE UPDATE OR DELETE ON "AuditLog"
+  FOR EACH ROW EXECUTE FUNCTION audit_log_no_row_mutation();
+```
+
+A real hardening story sits behind this: the connecting `postgres` role turned out to be a member of Supabase's built-in `anon`, `authenticated`, and `service_role` roles via `INHERIT`, and Supabase's default-privileges setup auto-grants those three roles full DML (including `UPDATE`/`DELETE`/`TRUNCATE`) on every new table for its PostgREST auto-API. Because `postgres` inherited those grants, the original `REVOKE ... FROM CURRENT_USER` didn't actually block anything — it only removed the role's own direct grant while the inherited grant still applied. A follow-up migration closes the gap by revoking DML on `"AuditLog"` from `anon`, `authenticated`, and `service_role` individually (each guarded by an existence check, since those roles don't exist on local Docker Postgres), plus an unconditional `REVOKE ... FROM PUBLIC` as a backstop.
+
+This is auth-gated access plus an append-only change log — no hashing/blockchain, and no cryptographic tamper-proofing is claimed anywhere in this system. Only authenticated users can reach the app at all, and every write path funnels through `authorize()`; the database guarantee is that once a row lands in the log, nothing — not even Admin, not even a direct database session using the app's own credentials — can edit or delete it.
+
+### 2. Custom session auth
+
+Sessions are signed JWTs (`jose`, HS256) stored in an httpOnly cookie, with passwords hashed via `bcryptjs` (pure JS, no native bindings). There are exactly 5 fixed roles, all created by Admin — no self-signup, no OAuth, no Supabase Auth.
+
+### 3. Signed, purpose-bound upload sessions
+
+Every upload is authorized by a short-lived `uploadToken` (a JWT with a distinct audience, reusing `SESSION_SECRET`) that binds together the exact storage key, case ID, document ID, and user ID it was issued for. `finalizeUpload` and the local-mode upload route both re-verify this token before touching storage — an upload target issued for one case/document/user can't be reused for another.
+
+### 4. Magic-byte + size checks
+
+`finalizeUpload` never trusts a client-declared MIME type or file extension. It reads the real bytes back from storage and detects the actual file type via the `file-type` library's magic-byte sniffing, checked against a fixed per-category/per-evidence-type allow-list (documents are PDF-only; evidence types allow JPEG/PNG/WEBP for photos, MP4/WEBM for video, MP3/WAV/M4A for audio, and ZIP/PDF for forensic data). Re-read directly from `app/lib/validation/document.ts`'s `SIZE_LIMIT_MB_BY_TYPE` this task, the current per-type size limits are:
+
+| File type | Limit |
+|-----------|-------|
+| PDF | 20 MB |
+| Image | 10 MB |
+| Audio | 25 MB |
+| Video | 45 MB |
+| ZIP | 45 MB |
+
+Video and ZIP sit below Supabase's free-tier 50 MB upload cap with headroom; PDF/image/audio were already well under it. A file that fails either check is deleted from staging and never becomes a `Document`/`DocumentVersion` row.
+
+### 5. No public file URLs
+
+Every file read goes through the single authenticated route `GET /api/files/[versionId]`, which re-runs `verifySession()` on every request (no cached authorization state), confirms the document hasn't been soft-deleted, and streams bytes from storage with HTTP range support. No signed *read* URL is ever handed to the browser — only signed *upload* URLs, which are verified and consumed entirely server-side before any database row is created.
+
+### 6. Live tamper test
+
+Admin's `/admin/log` page includes a tamper-test panel that attempts a live `UPDATE` and `DELETE` against the most recent audit-log row, through the app's own database connection, and shows the result: the database rejects both statements with a Postgres error, and the row is confirmed unchanged. If either statement unexpectedly succeeded, the panel shows an explicit "Tamper protection NOT active" warning rather than staying silent — there is no scenario where this check passes quietly without proof.
