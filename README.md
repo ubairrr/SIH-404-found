@@ -94,3 +94,170 @@ All 5 demo accounts share the password `CaseVault@123`.
 | No version control | Centralized storage (document version history) |
 | Poor inter-department collaboration | Cross-department collaboration |
 | Weak auditability | Complete audit trail |
+
+## Architecture
+
+**Stack:** Next.js 16.3.5 (App Router) + React 19.3.0 + TypeScript 5.9.3 on PostgreSQL 16/17 via Prisma 6.19.3, styled with Tailwind 4.x, with custom session auth (`jose` + `bcryptjs`) — no Auth.js/NextAuth, no Supabase Auth.
+
+**Project structure:**
+
+```
+app/
+├── (auth)/login/          # Login page + Demo Accounts panel (DEMO_MODE gated)
+├── (app)/                 # Authenticated route group
+│   ├── dashboard/         # Role-scoped case queues
+│   ├── cases/[id]/        # Case detail + Documents/Evidence/Change Log tabs
+│   ├── cases/new/         # FIR registration (Police/Admin)
+│   ├── search/            # Cross-case search
+│   ├── admin/users/       # User management (Admin)
+│   ├── admin/log/         # Audit log + tamper-test panel (Admin)
+│   └── access-denied/     # Server-side authorize() redirect target
+├── actions/               # Server Actions (cases, documents, users, audit, auth)
+├── api/files/[versionId]/ # Sole authenticated file-read chokepoint
+├── api/uploads/stage/     # Local-disk-mode upload PUT target
+└── lib/
+    ├── authorize.ts       # Single authorization chokepoint
+    ├── session.ts         # jose-signed session JWT (8h sliding)
+    ├── dal.ts             # verifySession() — DB re-check every call
+    ├── case-guards.ts     # Stage-machine pure guard functions
+    ├── document-guards.ts # Document-ownership/category guard functions
+    ├── file-magic.ts      # Magic-byte allow-lists + detection
+    └── storage/           # StorageAdapter interface + Supabase/local impls
+prisma/
+├── schema.prisma          # 6-model schema (User, Case, StageHistory, AuditLog, Document, DocumentVersion)
+├── migrations/            # Includes hand-edited append-only trigger SQL
+└── seed.ts                # Demo accounts + hero case + supporting cases
+```
+
+**Authorization is enforced by exactly one server-side chokepoint.** Every Server Action and Route Handler in this app calls `authorize()` (`app/lib/authorize.ts`), which always re-reads the caller's current role from the database via `verifySession()` before deciding — never from a cached or JWT-embedded value. `middleware.ts` is **UX-only**: it performs an optimistic cookie decode with no database call, purely to redirect an obviously-unauthenticated visitor before a page even starts rendering. It is never the authorization authority, and no route in this codebase treats it as one — the real gate is always `authorize()` on the server.
+
+**File storage is switched by one environment variable, never by code branching.** The `StorageAdapter` interface (`app/lib/storage/adapter.ts`) is implemented by both `SupabaseStorageAdapter` and `LocalDiskStorageAdapter`; `getStorageAdapter()` picks between them purely based on `STORAGE_DRIVER` — `"supabase"` selects the hosted adapter, anything else (including unset) selects the local-disk adapter. Every caller — upload, finalize, read — goes through this same interface regardless of which adapter is active.
+
+**Deployment** runs in two modes off the identical codebase: the primary demo is Vercel (app) + Supabase (Postgres + Storage), and the same code also runs fully offline on a single laptop via Docker Compose Postgres + local disk storage, as insurance against venue internet failure. Only environment configuration differs between the two.
+
+### System Architecture
+
+```mermaid
+flowchart LR
+    Browser["Browser (Next.js Client Components)"]
+    Middleware["middleware.ts (cookie-only fast check)"]
+    ServerActions["Server Actions / Route Handlers\n(app/actions/*, app/api/*)"]
+    Authorize["authorize() chokepoint\n(app/lib/authorize.ts)"]
+    DAL["verifySession() (app/lib/dal.ts)"]
+    Prisma["Prisma Client"]
+    Postgres[("PostgreSQL\n(Supabase or local Docker)")]
+    StorageAdapter["StorageAdapter interface\n(app/lib/storage/adapter.ts)"]
+    Supabase["Supabase Storage\n(hosted mode)"]
+    LocalDisk["Local disk\n(offline mode)"]
+
+    Browser -->|"request"| Middleware
+    Middleware -->|"optimistic redirect only"| ServerActions
+    ServerActions --> Authorize
+    Authorize --> DAL
+    DAL --> Prisma
+    ServerActions --> Prisma
+    Prisma --> Postgres
+    ServerActions --> StorageAdapter
+    StorageAdapter -->|"STORAGE_DRIVER=supabase"| Supabase
+    StorageAdapter -->|"STORAGE_DRIVER unset/local"| LocalDisk
+```
+
+### Case Lifecycle State Machine
+
+Forward-one-step only; `CLOSED_JUDGMENT` is reachable only via a dedicated close action requiring a verdict, never via a plain advance; only the owning department or Admin may advance a stage; Court or Admin may reopen a closed case.
+
+```mermaid
+stateDiagram-v2
+    [*] --> FIR_REGISTERED: Police registers FIR
+    FIR_REGISTERED --> UNDER_INVESTIGATION: Police advances
+    UNDER_INVESTIGATION --> CHARGE_SHEET_FILED: Prosecution advances
+    CHARGE_SHEET_FILED --> IN_COURT: Court advances
+    IN_COURT --> CLOSED_JUDGMENT: Court closes (verdict required)
+    CLOSED_JUDGMENT --> IN_COURT: Court reopens
+```
+
+### ER Data Model
+
+```mermaid
+erDiagram
+    User ||--o{ Case : registers
+    User ||--o{ StageHistory : acts
+    User ||--o{ AuditLog : performs
+    User ||--o{ Document : uploads
+    User ||--o{ DocumentVersion : creates
+    Case ||--o{ StageHistory : has
+    Case ||--o{ Document : contains
+    Document ||--o{ DocumentVersion : has
+
+    User {
+        string id PK
+        string username UK
+        Role role
+        boolean isActive
+    }
+    Case {
+        string id PK
+        string firNumber UK
+        Stage stage
+        Verdict verdict
+    }
+    StageHistory {
+        string id PK
+        string caseId FK
+        Stage fromStage
+        Stage toStage
+    }
+    AuditLog {
+        bigint id PK
+        string action
+        string targetType
+        string targetId
+    }
+    Document {
+        string id PK
+        string caseId FK
+        DocumentKind kind
+        DocumentCategory category
+        EvidenceType evidenceType
+    }
+    DocumentVersion {
+        string id PK
+        string documentId FK
+        int versionNumber
+        string storageKey UK
+    }
+```
+
+### Upload + File-Serving Sequence
+
+```mermaid
+sequenceDiagram
+    participant B as Browser
+    participant SA as requestUpload (Server Action)
+    participant St as Storage (Supabase/local disk)
+    participant FU as finalizeUpload (Server Action)
+    participant DB as Postgres
+    participant FR as GET /api/files/[versionId]
+
+    B->>SA: requestUpload(caseId, documentId?)
+    SA->>SA: authorize() + case-not-closed check
+    SA->>St: createUploadTarget(serverGeneratedKey)
+    SA-->>B: {url, uploadToken, key}
+    B->>St: PUT raw bytes (signed URL or /api/uploads/stage)
+    B->>FU: finalizeUpload(storageKey, uploadToken)
+    FU->>FU: verify uploadToken binds key+case+doc+user
+    FU->>St: readLeadingBytes(~4100 bytes)
+    FU->>FU: magic-byte + size check vs allow-list
+    alt invalid
+        FU->>St: deleteObject(key)
+        FU-->>B: error
+    else valid
+        FU->>DB: create Document/DocumentVersion + AuditLog (1 transaction)
+        FU-->>B: success
+    end
+    B->>FR: GET /api/files/[versionId]
+    FR->>FR: verifySession() (re-checked every request)
+    FR->>DB: lookup version + document (not soft-deleted)
+    FR->>St: readRange(storageKey, Range header)
+    FR-->>B: streamed bytes (inline or attachment)
+```
