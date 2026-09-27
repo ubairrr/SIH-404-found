@@ -22,7 +22,7 @@ export const ALLOWED_MIME_BY_TYPE: Record<string, string[]> = {
   PHOTO: ["image/jpeg", "image/png", "image/webp"],
   VIDEO_CCTV: ["video/mp4", "video/webm"],
   AUDIO: ["audio/mpeg", "audio/wav", "audio/x-wav", "audio/mp4"],
-  FORENSIC_DATA: ["application/zip", "application/x-zip-compressed"],
+  FORENSIC_DATA: ["application/zip", "application/x-zip-compressed", "application/pdf"],
 };
 
 // Human-readable labels for the D-04/D-09 rejection message, keyed the same

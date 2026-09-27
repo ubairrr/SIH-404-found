@@ -213,7 +213,7 @@ const SUPPORTING_CASES: SupportingCaseSeed[] = [
     accused: "Dinesh Chavan",
     description:
       "Complainant alleges a forged land sale agreement was used to claim ownership of an ancestral plot.",
-    targetStage: "CHARGE_SHEET_FILED",
+    targetStage: "IN_COURT",
   },
   {
     firNumber: "RJN/2026/0033",
@@ -258,6 +258,59 @@ const SUPPORTING_CASES: SupportingCaseSeed[] = [
       "Chain of custody gaps in recovered-vehicle evidence led the court to acquit the accused on benefit of doubt.",
   },
 ];
+
+// #06-01: shared per-index StageHistory+AuditLog row creation, extracted
+// from the new-case loop below so the existing-case stage top-up path (see
+// the `if (existing)` branch) can produce byte-identical rows without
+// duplicating the branch logic.
+async function createStageAdvanceRow(
+  tx: Prisma.TransactionClient,
+  params: {
+    caseId: string;
+    index: number;
+    seedCase: SupportingCaseSeed;
+    actor: { id: string };
+  },
+): Promise<void> {
+  const { caseId, index, seedCase, actor } = params;
+  const stage = STAGE_ORDER[index];
+  const actorRole = STAGE_ACTOR_ROLE[stage];
+  const isClosing = stage === "CLOSED_JUDGMENT";
+
+  await tx.stageHistory.create({
+    data: {
+      caseId,
+      fromStage: index === 0 ? null : STAGE_ORDER[index - 1],
+      toStage: stage,
+      actorId: actor.id,
+      actorRole,
+      remark:
+        isClosing && seedCase.verdict
+          ? `Verdict: ${seedCase.verdict} — ${seedCase.judgmentSummary}`
+          : null,
+    },
+  });
+
+  await tx.auditLog.create({
+    data: {
+      actorId: actor.id,
+      actorRole,
+      action:
+        index === 0
+          ? "CASE_REGISTERED"
+          : isClosing
+            ? "CASE_CLOSED"
+            : "STAGE_ADVANCED",
+      targetType: "Case",
+      targetId: caseId,
+      targetLabel: seedCase.firNumber,
+      details: {
+        fromStage: index === 0 ? null : STAGE_ORDER[index - 1],
+        toStage: stage,
+      },
+    },
+  });
+}
 
 async function seedCases() {
   const usersByRole = new Map<Role, { id: string }>();
@@ -359,6 +412,34 @@ async function seedCases() {
 
     if (existing) {
       caseId = existing.id;
+
+      // #06-01: existing-case stage top-up — if this seed run's targetStage
+      // has moved past a previously-seeded case's current stage (e.g. 0089
+      // moving from CHARGE_SHEET_FILED to IN_COURT), advance it in one
+      // transaction alongside the missing StageHistory/AuditLog rows.
+      // Idempotent no-op if the case is already at or past targetStage.
+      const currentIndex = STAGE_ORDER.indexOf(existing.stage);
+      const targetIndex = STAGE_ORDER.indexOf(seedCase.targetStage);
+
+      if (currentIndex < targetIndex) {
+        await prisma.$transaction(async (tx) => {
+          await tx.case.update({
+            where: { id: existing.id },
+            data: { stage: seedCase.targetStage },
+          });
+
+          for (let i = currentIndex + 1; i <= targetIndex; i++) {
+            const actorRole = STAGE_ACTOR_ROLE[STAGE_ORDER[i]];
+            const actor = usersByRole.get(actorRole)!;
+            await createStageAdvanceRow(tx, {
+              caseId: existing.id,
+              index: i,
+              seedCase,
+              actor,
+            });
+          }
+        });
+      }
     } else {
       const targetIndex = STAGE_ORDER.indexOf(seedCase.targetStage);
 
@@ -384,43 +465,13 @@ async function seedCases() {
         });
 
         for (let i = 0; i <= targetIndex; i++) {
-          const stage = STAGE_ORDER[i];
-          const actorRole = STAGE_ACTOR_ROLE[stage];
+          const actorRole = STAGE_ACTOR_ROLE[STAGE_ORDER[i]];
           const actor = usersByRole.get(actorRole)!;
-          const isClosing = stage === "CLOSED_JUDGMENT";
-
-          await tx.stageHistory.create({
-            data: {
-              caseId: created.id,
-              fromStage: i === 0 ? null : STAGE_ORDER[i - 1],
-              toStage: stage,
-              actorId: actor.id,
-              actorRole,
-              remark:
-                isClosing && seedCase.verdict
-                  ? `Verdict: ${seedCase.verdict} — ${seedCase.judgmentSummary}`
-                  : null,
-            },
-          });
-
-          await tx.auditLog.create({
-            data: {
-              actorId: actor.id,
-              actorRole,
-              action:
-                i === 0
-                  ? "CASE_REGISTERED"
-                  : isClosing
-                    ? "CASE_CLOSED"
-                    : "STAGE_ADVANCED",
-              targetType: "Case",
-              targetId: created.id,
-              targetLabel: created.firNumber,
-              details: {
-                fromStage: i === 0 ? null : STAGE_ORDER[i - 1],
-                toStage: stage,
-              },
-            },
+          await createStageAdvanceRow(tx, {
+            caseId: created.id,
+            index: i,
+            seedCase,
+            actor,
           });
         }
 

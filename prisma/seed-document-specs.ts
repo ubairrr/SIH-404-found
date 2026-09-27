@@ -49,6 +49,20 @@ export const HERO_CASE_DOCUMENTS: SeedDocumentSpec[] = [
 export const SUPPORTING_CASE_DOCUMENTS: Record<string, SeedDocumentSpec[]> = {
   "KOT/2026/0089": [
     {
+      title: "FIR — Cheating and Forgery in Land Sale Agreement",
+      kind: "DOCUMENT",
+      category: "FIR",
+      actorRole: "POLICE",
+      versions: [
+        {
+          filename: "fir-0089.pdf",
+          mimeType: "application/pdf",
+          versionNumber: 1,
+          changeNote: null,
+        },
+      ],
+    },
+    {
       title: "Witness Statement — Suresh Patil",
       kind: "DOCUMENT",
       category: "WITNESS_STATEMENT",
