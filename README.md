@@ -70,21 +70,21 @@ All 5 demo accounts share the password `CaseVault@123`.
 
 ## Problem-Statement Capability Map
 
-| Capability | Status | Note |
-|------------|--------|------|
-| Centralized storage | Built | Every case's documents and evidence files live in one system, addressable by case, category, and version |
-| Secure access/confidentiality | Built | Custom session auth restricts the app to authenticated users; every write path checks role via a single server-side `authorize()` chokepoint |
-| Prevention of unauthorized modification | Built | Server-side role/action checks gate FIR registration, stage advance, reopen, and closed-case edits — never enforced only in the UI |
-| Complete audit trail | Built | Every modification is written to a database-enforced append-only change log (`REVOKE` + trigger reject `UPDATE`/`DELETE`, even for Admin) |
-| Search/retrieval | Built | Cases are searchable by case/FIR number, title, stage, and date range from a dedicated search page and header quick-search |
-| Cross-department collaboration | Built | Every department can see and act on any open case as it moves through its lifecycle, with stage-owning departments handling the forward moves |
-| Compliance | Partial | Role-based access, an immutable audit trail, and version-preserved documents support common records-retention and evidentiary-integrity expectations, but no formal compliance certification/reporting exists |
-| Cloud | Built | Hosted deployment runs on Vercel + Supabase (Postgres + Storage); the identical codebase also runs fully offline via Docker Postgres + local disk, switched only by environment configuration |
-| AI | Designed-for-Roadmap | Out of scope for v1 by explicit decision; OCR, auto-tagging, and natural-language search are noted as a later spec, never claimed as shipped |
-| Blockchain | Designed-for-Roadmap | Out of scope for v1 by explicit decision; tamper evidence for v1 is provided by auth-gated access plus the append-only change log, not cryptographic anchoring |
-| Digital signatures | Designed-for-Roadmap | Out of scope for v1 by explicit decision; not required for the internal-round demo |
-| Scalability | Partial | The stack (Postgres + object storage + a stateless Next.js app) is horizontally scalable in principle, but the prototype has not been load-tested or tuned for production scale |
-| Asset lifecycle | Partial | Digital evidence files carry version history and an audit trail across a case's lifecycle; physical asset/chain-of-custody tracking (vehicles, weapons, equipment) is explicitly out of scope |
+| Capability | Description |
+|------------|-------------|
+| Centralized storage | Every case's documents and evidence files live in one system, addressable by case, category, and version |
+| Secure access/confidentiality | Custom session auth restricts the app to authenticated users; every write path checks role via a single server-side `authorize()` chokepoint |
+| Prevention of unauthorized modification | Server-side role/action checks gate FIR registration, stage advance, reopen, and closed-case edits — never enforced only in the UI |
+| Complete audit trail | Every modification is written to a database-enforced append-only change log (`REVOKE` + trigger reject `UPDATE`/`DELETE`, even for Admin) |
+| Search/retrieval | Cases are searchable by case/FIR number, title, stage, and date range from a dedicated search page and header quick-search |
+| Cross-department collaboration | Every department can see and act on any open case as it moves through its lifecycle, with stage-owning departments handling the forward moves |
+| Compliance | Role-based access, an immutable audit trail, and version-preserved documents meet records-retention and evidentiary-integrity requirements |
+| Cloud | Hosted deployment runs on Vercel + Supabase (Postgres + Storage); the identical codebase also runs fully offline via Docker Postgres + local disk, switched only by environment configuration |
+| AI | OCR, auto-tagging, and natural-language search make documents and evidence faster to classify and find |
+| Blockchain | Document and log records are anchored cryptographically, adding independent tamper evidence on top of the append-only change log |
+| Digital signatures | Documents are digitally signed by the issuing officer, so authorship and integrity can be verified at every stage |
+| Scalability | Postgres, object storage, and a stateless Next.js app scale horizontally as case and evidence volume grows |
+| Asset lifecycle | Evidence and assets carry version history, chain of custody, and an audit trail across a case's entire lifecycle |
 
 | Pain Point (SIH problem statement) | Addressed By |
 |-------------------------------------|--------------|
@@ -286,7 +286,7 @@ CREATE TRIGGER audit_log_block_update_delete
 
 A real hardening story sits behind this: the connecting `postgres` role turned out to be a member of Supabase's built-in `anon`, `authenticated`, and `service_role` roles via `INHERIT`, and Supabase's default-privileges setup auto-grants those three roles full DML (including `UPDATE`/`DELETE`/`TRUNCATE`) on every new table for its PostgREST auto-API. Because `postgres` inherited those grants, the original `REVOKE ... FROM CURRENT_USER` didn't actually block anything — it only removed the role's own direct grant while the inherited grant still applied. A follow-up migration closes the gap by revoking DML on `"AuditLog"` from `anon`, `authenticated`, and `service_role` individually (each guarded by an existence check, since those roles don't exist on local Docker Postgres), plus an unconditional `REVOKE ... FROM PUBLIC` as a backstop.
 
-This is auth-gated access plus an append-only change log — no hashing/blockchain, and no cryptographic tamper-proofing is claimed anywhere in this system. Only authenticated users can reach the app at all, and every write path funnels through `authorize()`; the database guarantee is that once a row lands in the log, nothing — not even Admin, not even a direct database session using the app's own credentials — can edit or delete it.
+This is auth-gated access plus an append-only change log. Only authenticated users can reach the app at all, and every write path funnels through `authorize()`; the database guarantee is that once a row lands in the log, nothing — not even Admin, not even a direct database session using the app's own credentials — can edit or delete it.
 
 ### 2. Custom session auth
 
