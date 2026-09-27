@@ -11,7 +11,8 @@
     "lint": "eslint",
     "test": "node --conditions=react-server --import tsx --test 'app/**/*.test.ts'",
     "db:seed": "prisma db seed",
-    "storage:backfill-seed": "node --conditions=react-server --import tsx scripts/backfill-seed-storage.ts"
+    "storage:backfill-seed": "node --conditions=react-server --import tsx scripts/backfill-seed-storage.ts",
+    "verify:hero-case": "node --conditions=react-server --import tsx scripts/verify-hero-case.ts"
   },
   "dependencies": {
     "@hookform/resolvers": "5.9.1",
